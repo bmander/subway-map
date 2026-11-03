@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riders aboard every NYC subway train — a modeled day</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #6f6e69;
+    --hairline: rgba(11, 11, 11, 0.12);
+    --panel: rgba(252, 252, 251, 0.96);
+    --accent: #2a78d6;          /* sequential blue, step 450 */
+    --area: rgba(42, 120, 214, 0.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #9a998f;
+      --hairline: rgba(240, 239, 236, 0.14);
+      --panel: rgba(26, 26, 25, 0.95);
+      --accent: #5598e7;        /* step 350 for the dark surface */
+      --area: rgba(85, 152, 231, 0.22);
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #9a998f;
+    --hairline: rgba(240, 239, 236, 0.14);
+    --panel: rgba(26, 26, 25, 0.95);
+    --accent: #5598e7;
+    --area: rgba(85, 152, 231, 0.22);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body.viz-root {
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    height: 100vh;
+  }
+  header { padding: 12px 16px 4px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .sub { color: var(--text-secondary); margin: 2px 0 0; }
+  .about-link { color: var(--accent); font-weight: 600; white-space: nowrap; }
+
+  /* One control row above the map */
+  .controls {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 8px 16px 10px; border-bottom: 1px solid var(--hairline);
+  }
+  .clock { font-size: 28px; font-weight: 600; min-width: 6.5ch; }
+  .clock small { font-size: 14px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+  button, select {
+    font: inherit; color: var(--text-primary); background: var(--surface-1);
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+  }
+  button:focus-visible, select:focus-visible, .timeline:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #play { min-width: 5.5em; }
+  .seg { display: inline-flex; border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .spacer { flex: 1; }
+  label.inline { color: var(--text-secondary); display: inline-flex; gap: 6px; align-items: center; }
+
+  main { position: relative; min-height: 0; }
+  #map { position: absolute; inset: 0; }
+
+  .panel {
+    position: absolute; background: var(--panel); border: 1px solid var(--hairline);
+    border-radius: 8px; padding: 12px 14px;   /* no backdrop-filter: re-blurring the animating map every frame is costly */
+    z-index: 2;   /* above the map and deck.gl canvases */
+  }
+  #side { top: 12px; right: 12px; width: 320px; max-height: calc(100% - 190px); overflow: auto; }
+  .stat-label { color: var(--text-secondary); font-size: 12px; }
+  .stat { font-size: 26px; font-weight: 600; line-height: 1.15; }
+  .stat-row { display: flex; gap: 24px; margin-bottom: 10px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  td, th { padding: 4px 4px; border-top: 1px solid var(--hairline); vertical-align: top; text-align: left; }
+  th { color: var(--text-secondary); font-weight: 500; border-top: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .where { color: var(--text-secondary); }
+  .bullet {
+    display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+    font-size: 11px; font-weight: 700; color: #fff; flex: none;
+  }
+  .bullet.dark-text { color: #0b0b0b; }
+  .legend-routes { display: flex; flex-wrap: wrap; gap: 4px; }
+  .size-legend { display: flex; align-items: flex-end; gap: 14px; margin-top: 4px; }
+  .size-legend div { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-secondary); font-size: 12px; }
+  .size-legend svg circle { fill: none; stroke: var(--text-secondary); stroke-width: 1.5; }
+  .ramp { height: 10px; border-radius: 3px; margin-top: 6px; }
+  .ramp-labels { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 12px; }
+  .note { color: var(--text-muted); font-size: 12px; margin-top: 12px; }
+
+  #timeline-panel { left: 12px; right: 344px; bottom: 28px; padding: 8px 12px 4px; }
+  .timeline { width: 100%; height: 118px; display: block; cursor: ew-resize; touch-action: none; }
+  .timeline .area { fill: var(--area); }
+  .timeline .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .timeline .grid { stroke: var(--hairline); stroke-width: 1; }
+  .timeline .tick { fill: var(--text-secondary); font-size: 11px; }
+  .timeline .cursor { stroke: var(--text-primary); stroke-width: 1.5; }
+  .timeline .hover { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 3 3; }
+  .timeline .dot { fill: var(--accent); stroke: var(--surface-1); stroke-width: 2; }
+
+  #tooltip {
+    position: absolute; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--hairline);
+    border-radius: 6px; padding: 8px 10px; font-size: 12.5px; max-width: 300px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  }
+  #tooltip .value { font-size: 15px; font-weight: 600; }
+  #tooltip .row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+  #tooltip .secondary { color: var(--text-secondary); }
+  #loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-secondary); z-index: 3; }
+  @media (max-width: 900px) {
+    #side { width: 260px; }
+    #timeline-panel { right: 12px; bottom: 12px; }
+  }
+</style>
+</head>
+<body class="viz-root">
+<header>
+  <h1>Riders aboard every NYC subway train</h1>
+  <p class="sub">A modeled estimate for Wednesday, February 5, 2020, inferred from turnstile counts and the
+    scheduled timetable. Marker area shows riders aboard. <a class="about-link" href="about.html">How this was made →</a></p>
+</header>
+<div class="controls" role="toolbar" aria-label="Playback">
+  <button id="play" type="button" aria-label="Pause">❚❚ Pause</button>
+  <div class="clock" id="clock" aria-live="off">--:--</div>
+  <label class="inline">Speed
+    <select id="speed">
+      <option value="60">1 min / s</option>
+      <option value="180" selected>3 min / s</option>
+      <option value="600">10 min / s</option>
+    </select>
+  </label>
+  <span class="inline" id="color-by-label" style="color: var(--text-secondary)">Color trains by</span>
+  <div class="seg" role="group" aria-labelledby="color-by-label">
+    <button type="button" data-color="line" aria-pressed="true">Line</button>
+    <button type="button" data-color="crowding" aria-pressed="false">Riders aboard</button>
+  </div>
+  <div class="spacer"></div>
+  <button id="theme" type="button">Theme: auto</button>
+</div>
+<main>
+  <div id="map" aria-label="Map of subway trains"></div>
+  <div id="loading">Loading the day…</div>
+  <aside class="panel" id="side">
+    <div class="stat-row">
+      <div><div class="stat-label">Riders aboard now</div><div class="stat" id="stat-aboard">–</div></div>
+      <div><div class="stat-label">Trains running</div><div class="stat" id="stat-trains">–</div></div>
+    </div>
+    <h2 id="top-title">Most crowded trains now</h2>
+    <table aria-labelledby="top-title">
+      <thead><tr><th>Line</th><th>Train · between</th><th class="num">Aboard</th></tr></thead>
+      <tbody id="top-body"></tbody>
+    </table>
+    <h2>Legend</h2>
+    <div id="legend-color"></div>
+    <div class="size-legend" id="legend-size" aria-label="Marker size legend"></div>
+    <p class="note">Model output, not counts: hourly entries are matched exactly; destinations, route choice and
+      timing are inferred (gravity model fit to turnstile exits, earliest-arrival routing with a 5-minute transfer
+      penalty). Track geometry: MTA GTFS. Data: MTA via data.ny.gov.</p>
+  </aside>
+  <div class="panel" id="timeline-panel">
+    <div class="stat-label">Riders aboard trains, systemwide — drag to scrub</div>
+    <svg class="timeline" id="timeline" role="slider" tabindex="0" aria-label="Time of day"
+         aria-valuemin="0" aria-valuemax="1440"></svg>
+  </div>
+  <div id="tooltip" role="status"></div>
+</main>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@9.1.14/dist.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
