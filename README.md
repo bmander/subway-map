@@ -3,6 +3,9 @@
 Riders aboard every NYC subway train over one day, inferred from turnstile counts and the
 scheduled timetable, shown as an animated, zoomable map.
 
+**Live site: https://bmander.github.io/subway-map/** (and
+[how it was made](https://bmander.github.io/subway-map/about.html)).
+
 The modeled day is **Wednesday, February 5, 2020**: a high-ridership, non-holiday weekday
 a month before COVID, covered by an archived copy of MTA's Fall 2019 static GTFS.
 
@@ -25,6 +28,16 @@ cached data takes about 15 minutes on a 6-core laptop, most of it in `calibrate`
 
 On Intel Macs, newer `llvmlite` releases ship no wheels. numba 0.62 / llvmlite 0.45 install
 from binaries.
+
+### Publishing
+
+`scripts/publish_site.sh` copies `web/` and its generated data into a single-commit
+`gh-pages` branch and force-pushes it. GitHub Pages serves that branch. The data stays
+out of `main` because it's gitignored, so publish after `subway export`:
+
+```sh
+.venv/bin/subway export && scripts/publish_site.sh
+```
 
 ## Pipeline
 
