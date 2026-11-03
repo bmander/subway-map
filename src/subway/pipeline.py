@@ -159,7 +159,10 @@ def validate() -> None:
 
 def export() -> None:
     from . import export as X
-    X.write(C.ROOT / "web" / "data")
+    from . import writeup as W
+    out = C.ROOT / "web" / "data"
+    X.write(out)
+    W.write(out)
 
 
 STAGES = ["fetch", "clean", "network", "route", "calibrate", "fit", "assign", "validate", "export"]

@@ -38,7 +38,7 @@ from binaries.
 | `fit` | infers origin-destination demand per hour (see below) | `demand.npz` |
 | `assign` | re-routes the demand at 2-minute departure resolution and adds it onto each train's stop-to-stop segments | `loads.npy` |
 | `validate` | compares destination shares with MTA's own OD estimates | `validation.json` |
-| `export` | shared track geometry, per-trip timings and loads, station entries | `web/data/day.json` |
+| `export` | shared track geometry, per-trip timings and loads, station entries; figure data and quoted numbers for the "How this was made" page (`web/about.html`) | `web/data/day.json`, `web/data/writeup.json` |
 
 ## The model
 

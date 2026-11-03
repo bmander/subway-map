@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How many people are on that train? — How the subway map was made</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #6f6e69;
+    --hairline: rgba(11, 11, 11, 0.12); --grid: rgba(11, 11, 11, 0.08);
+    --s1: #2a78d6; --s2: #eb6834;
+    --o1: #86b6ef; --o2: #3987e5; --o3: #184f95;
+    --accent: #2a78d6; --code-bg: #f0efec;
+    --dot-ring: rgba(11, 11, 11, 0.45);   /* light basemap: outline so yellow/grey trains stay visible */
+    --swarm-op: 0.45;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+      --hairline: rgba(240, 239, 236, 0.14); --grid: rgba(240, 239, 236, 0.08);
+      --s1: #3987e5; --s2: #d95926;
+      --o1: #184f95; --o2: #3987e5; --o3: #b7d3f6;
+      --accent: #5598e7; --code-bg: #262624;
+      --dot-ring: #1a1a19;
+      --swarm-op: 0.75;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font: 17px/1.6 ui-serif, Georgia, "Times New Roman", serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+  .wide { max-width: 1040px; margin: 32px auto; padding: 0 20px; }
+  .end { padding-bottom: 80px; }
+  nav { font: 14px/1.4 ui-sans-serif, system-ui, sans-serif; padding: 16px 20px 0; max-width: 1040px; margin: 0 auto; }
+  nav a { color: var(--text-secondary); }
+  h1 { font: 700 42px/1.12 ui-sans-serif, system-ui, sans-serif; margin: 24px 0 10px; letter-spacing: -0.01em; }
+  .dek { font-size: 20px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
+  h2 { font: 700 24px/1.25 ui-sans-serif, system-ui, sans-serif; margin: 52px 0 8px; }
+  p { margin: 0 0 16px; }
+  a { color: var(--accent); }
+  code { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+  figure { margin: 28px 0; }
+  figure svg { display: block; width: 100%; height: auto; overflow: visible; }
+  figcaption { font: 14px/1.45 ui-sans-serif, system-ui, sans-serif; color: var(--text-secondary); margin-top: 8px; }
+  figcaption b { color: var(--text-primary); }
+  .chart-title { font: 600 15px ui-sans-serif, system-ui, sans-serif; margin: 0 0 4px; }
+  .legend { display: flex; gap: 6px 16px; flex-wrap: wrap; font: 13px ui-sans-serif, system-ui, sans-serif; color: var(--text-secondary); margin: 4px 0 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .key-line { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+  .key-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .two-up { display: grid; grid-template-columns: 1.6fr 1fr; gap: 28px; align-items: start; }
+  .hero { display: grid; grid-template-columns: 520px 1fr; gap: 36px; align-items: center; }
+  .hero-side { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; color: var(--text-secondary); }
+  .hero-time { font: 700 56px/1 ui-sans-serif, system-ui, sans-serif; color: var(--text-primary); letter-spacing: -0.02em; }
+  .hero-stat { font: 600 20px/1.3 ui-sans-serif, system-ui, sans-serif; color: var(--text-primary); margin: 8px 0 16px; }
+  .hero-side .legend { margin-top: 12px; }
+  @media (max-width: 900px) {
+    .two-up, .hero { grid-template-columns: 1fr; }
+    h1 { font-size: 32px; }
+  }
+  svg text { font-family: ui-sans-serif, system-ui, sans-serif; }
+  .tick { fill: var(--text-secondary); font-size: 12px; }
+  .label { fill: var(--text-primary); font-size: 13px; }
+  .label-muted { fill: var(--text-secondary); font-size: 12.5px; }
+  .grid { stroke: var(--grid); }
+  .axis { stroke: var(--hairline); }
+  details { font: 14px ui-sans-serif, system-ui, sans-serif; color: var(--text-secondary); margin-top: 6px; }
+  summary { cursor: pointer; }
+  details table { border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  details td, details th { padding: 2px 12px 2px 0; text-align: right; border-bottom: 1px solid var(--hairline); font-weight: 400; }
+  details th { color: var(--text-primary); font-weight: 600; }
+  details th:first-child, details td:first-child { text-align: left; }
+  #tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none; max-width: 300px;
+    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--hairline); border-radius: 6px;
+    padding: 6px 9px; font: 12.5px/1.4 ui-sans-serif, system-ui, sans-serif; box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+  }
+  #tip .v { font-weight: 600; font-size: 14px; }
+  #tip .s { color: var(--text-secondary); }
+  .hit:focus { outline: none; }
+  .hit:focus-visible { outline: 2px solid var(--accent); }
+  .callout { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">← Back to the map</a></nav>
+
+<div class="wrap">
+  <h1>How many people are on that train?</h1>
+  <p class="dek">Every train on the map carries a number: how many riders are aboard. Nobody counted them.
+    Here is how they were inferred from fare and turnstile counts, a timetable, and some network tomography.</p>
+</div>
+
+<div class="wide">
+  <figure id="fig-hero" class="hero" aria-label="Map of every subway train at 8:45 a.m., sized by riders aboard"></figure>
+</div>
+
+<div class="wrap">
+  <p>At 8:45 a.m. on Wednesday, February 5, 2020, a month before the pandemic emptied the system, about
+    <span data-fact="hero_aboard_round">213,000</span> people were riding New York's subway trains — according to
+    the model this page describes. The MTA doesn't publish a picture like the one above. Its fare system knows
+    how many people enter each station, hour by hour, and its turnstiles know, roughly, how many leave. Nothing
+    records which train anyone rode. What follows is how to get from those counts to a number for every train: a
+    little data cleaning, a little graph search, and an idea borrowed from medical imaging.</p>
+
+  <h2>What the counters know</h2>
+  <p>Two MTA datasets do the counting. The fare system's hourly ridership counts entries at each of the
+    system's <span data-fact="n_complexes">424</span> station complexes, every hour. Those are the model's inputs,
+    and it matches them exactly. Everything it knows about exits comes from the older turnstile files, published
+    through 2022: a reading of every turnstile's registers, taken every four hours.</p>
+  <figure id="fig-turnstile"></figure>
+  <p>The register works like a car's odometer: two counters, entries and exits, that should only go up. Subtract
+    consecutive readings and you get riders per interval. “Should” is doing some work here: across the week, 81
+    counters ran backwards and two dozen jumped by millions when they were reset. Flipping the first kind and
+    patching the second from the same turnstile's usual count was enough; fewer than one interval in 5,000 needed
+    a patch.</p>
+  <p>The harder problem is where each turnstile is. The files name stations in 15 truncated characters
+    (<code>JKSN HT-ROOSVLT</code>) with a run-on list of lines (<code>EFMR7</code>), so matching them to station
+    complexes takes fuzzy name matching plus line overlap. That mostly works. Its best mistake was a unit labeled
+    “59 ST” with lines “NRW,” which the matcher placed at 5 Av/59 St in Manhattan. It is really 59 St in
+    Sunset Park, Brooklyn. The hourly entries caught it: when turnstiles are assigned to the wrong station, the two
+    datasets disagree. After that one hand fix, every complex's turnstile entries match the fare system's within
+    <span data-fact="xw_max_dev_pct">8%</span>, and <span data-fact="xw_within5">406</span> of 424 within 5%.</p>
+  <p>Exits are messier. Riders leave through emergency gates and exit-only stairways that have no counters, so
+    recorded exits add up to only 79% of entries systemwide. Station by station, the ratio runs from almost nothing
+    to nearly double.</p>
+  <figure id="fig-exits"></figure>
+  <p>Some of that spread is real, because not everyone goes home from the station they came in at; that's how
+    <span data-fact="n_exits_gt_entries">82</span> stations can record more exits than entries. Most of it is
+    counting. So exit counts can't say how many people went to a station. They can say <i>when</i> people left it:
+    the shape over the day survives even when the level doesn't.</p>
+
+  <h2>The timetable is a graph</h2>
+  <p>The second ingredient is the schedule. The MTA's current timetable is easy to download; the February 2020
+    one is not, but the Internet Archive saved a copy of the feed from that spring, and its weekday schedule
+    covers our day exactly: <span data-fact="n_trips">8,376</span> trips, making about
+    <span data-fact="n_hops_round">225,000</span> station-to-station hops.</p>
+  <p>A route planner called the Connection Scan Algorithm reads those hops once, in order of departure time, and
+    finds the earliest way from a station, at any minute, to every other station. Earliest isn't how people
+    choose, though. Asked to get from Times Square to Coney Island, it takes the 7 one stop, changes to the B,
+    and changes again to the Q, all to arrive six minutes before the one-seat N. So the planner keeps the best
+    journey for each number of trains used, and riders pick whichever minimizes arrival time plus five minutes
+    for every transfer. That puts them on the N.</p>
+
+  <h2>Network tomography</h2>
+  <p>Now the puzzle: we know how many people entered each station each hour, and roughly when people left each
+    station. We want to know who went where.</p>
+  <p>This is <b>network tomography</b>, a name Yehuda Vardi gave in 1996 to estimating the traffic between every
+    pair of computers on a network from counts on its links. The name comes from medical imaging. A CT scanner
+    never sees inside you; it measures sums along X-ray paths, from many angles, and solves for the interior that
+    explains them all. One angle isn't enough.</p>
+  <figure id="fig-tomo"></figure>
+  <p>Lay the unknowns out as a table of origins by destinations and the hourly entries are its row sums; the exit
+    counts are its column sums, up to each station's unknown recording rate, which is why the rule that
+    people go home matters. That is two angles. The timetable supplies more. A rider who enters Flushing at
+    8 a.m. bound for Grand Central leaves around 8:35; one bound for Coney Island, around 9:30. So each four-hour exit
+    count is a sum over a particular set of origins and starting hours, picked out by the routes through the
+    timetable. The routes are the rays.</p>
+  <p>Even so, the scan is badly underdetermined. The unknowns are riders from each station to each other station
+    for each hour of the modeled window: <span data-fact="n_unknowns_round">5.4 million</span> numbers, against
+    <span data-fact="n_exit_obs">2,587</span> exit counts and 424 daily totals. The model needs a shape, and ours is
+    one of the oldest in transportation planning, the <b>gravity model</b>. Riders entering a station spread over
+    destinations in proportion to each destination's pull at that hour times a weight that falls with travel time,
+    and are shared out so each station's riders add up to its measured entries. The weight is
+    e<sup>−minutes/17.2</sup>: every 12 extra minutes of travel halves a destination's appeal (more on where that
+    number came from below).</p>
+  <p>That leaves <span data-fact="n_pulls">12,720</span> pulls to fit, one per station per hour, tuned so that
+    the riders, routed through the timetable, leave each station when its exit counters say they did. Three
+    assumptions make that possible. Each group of exit counters gets its own recording rate, which absorbs both
+    missing gates and model error. Each station's exits over the day roughly equal its entries, because people go
+    home. And a station's pull changes smoothly from hour to hour. Those assumptions, as much as the data, decide
+    the details.</p>
+
+  <h2>Two ways it went wrong</h2>
+  <p>The first attempt skipped the gravity model and let all 5.4 million flows float free, nudging them until
+    they matched the exits. It matched beautifully, by inventing nonsense: to reconcile two exit counters at the
+    same Bronx station, it put 2,600 people on a single 5:55 a.m. 6 train. With enough free numbers, a model will
+    always find a way to fit the noise.</p>
+  <p>The second attempt had the gravity model and failed more spectacularly. It decided that 14 St–Union Square
+    was the destination of <span data-fact="us_first_day">2.15 million</span> trips a day, more than a third of the
+    whole system, at a station where about 104,000 people enter.</p>
+</div>
+<div class="wide"><figure id="fig-union"></figure></div>
+<div class="wrap">
+  <p>The culprit was the exit counters again. Systemwide, the share of riders whose exit gets recorded is lowest
+    at the morning peak, when crowds push through emergency gates. A model in which each counter's rate is fixed
+    all day can't express that, so it found a loophole: a station with a single group of exit counters, whose
+    recording rate could drop to 7% while its “arrivals” absorbed the mismatch. The fix was to let recording vary
+    smoothly by time of day, the same for the whole system (right). Union Square went back to being a busy station
+    rather than a black hole.</p>
+
+  <h2>Putting people on trains</h2>
+  <p>With flows between stations in hand, the last step is mechanical. Each hour's riders from each station are
+    spread over departure times two minutes apart, each group is routed through the timetable, and its riders are
+    added to every hop of every train it rides. That is about 380,000 route searches, a minute and a half on a
+    laptop. The result is a rider count for every hop of every trip, which is what the map animates.</p>
+</div>
+<div class="wide"><figure id="fig-marey"></figure></div>
+<div class="wrap">
+  <p>On the 7 line between 7:45 and 8:45, Manhattan-bound trains fill up through Queens until they are carrying
+    about 20,000 riders an hour past Queensboro Plaza, and stay near that level under the East River before
+    emptying at Grand Central and Times Square. Expresses run fuller than locals; the fullest train of the hour is a
+    7 express with <span data-fact="marey_fullest">about 1,000</span> riders between Woodside and Queensboro Plaza.
+    Trains heading back to Flushing carry under a third as many.</p>
+
+  <h2>How good is it?</h2>
+  <p>Parts of it can be checked; the part on the map can't, yet. The MTA publishes its own origin–destination
+    estimates, inferred from MetroCard and OMNY swipe histories, but only from 2021 on. February 2023 Wednesdays
+    are the nearest comparison: lower volume and less commuting than 2020, but the same city. So the check compares
+    where each station's riders go, as shares, scoring the overlap from 0 (entirely different destinations) to 1
+    (identical).</p>
+  <figure id="fig-validation"></figure>
+  <p>Knowing nothing but each station's size already scores <span data-fact="ov_day_null">0.60</span>. Adding
+    travel time brings it to <span data-fact="ov_day_prior">0.68</span>, and fitting to the exit counts to
+    <span data-fact="ov_day_fitted">0.74</span>. In the morning peak the same steps go
+    <span data-fact="ov_am_null">0.51</span>, <span data-fact="ov_am_prior">0.66</span>,
+    <span data-fact="ov_am_fitted">0.69</span>.</p>
+  <p>That check isn't fully independent, because one number came from the same MTA data. The turnstile counts barely
+    constrain how far people travel, so the travel-time weight was calibrated to reproduce the MTA's distribution of
+    trip lengths. Before calibration the model's median trip was 34 minutes, against the MTA's 28, and the whole-day
+    overlap was 0.69, against 0.74 now.</p>
+  <figure id="fig-calibration"></figure>
+  <p class="callout">Nothing here checks per-train loads directly. Entries are measured; destinations, timing
+    within the hour, and route choice are modeled. Everyone traveling between the same two stations at the same
+    minute takes the same train, and trains never fill up, so fast routes probably carry too many riders and
+    parallel ones too few. The biggest dots on the map, on the A and the B, are on exactly those fast routes, and the
+    Lexington Avenue express looks lighter than its reputation. The timetable is also the plan, not what actually
+    ran that day. A direct test would compare loads with cordon counts of subway riders entering Manhattan, line by
+    line.</p>
+
+  <h2>Ingredients</h2>
+  <p>Turnstile usage (2020), hourly subway ridership, the subway stations table, and origin–destination estimates
+    (2023), all from the MTA via data.ny.gov. The February 2020 GTFS schedule, via the Internet Archive. Basemap ©
+    OpenStreetMap contributors and CARTO. The code is a small Python pipeline (polars, numba, scipy) and a MapLibre
+    + deck.gl page; the README explains how to rebuild everything.</p>
+  <p class="end"><a href="index.html">← Back to the map</a></p>
+</div>
+<div id="tip" role="status"></div>
+<script type="module" src="about.js"></script>
+</body>
+</html>
